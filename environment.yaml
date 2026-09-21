@@ -47,4 +47,4 @@ dependencies:
       - scikit-learn
       - pandas
       - music21
-      - transformers
+      - transformers==4.49.0

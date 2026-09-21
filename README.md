@@ -34,14 +34,6 @@ python -m acr infer-s --input-path /path/to/song.mid --output-path /tmp/out --ba
 python -m acr infer-s --input-path /path/to/song.musicxml --output-path /tmp/out --backbone-type crnn
 ```
 
-You can also use the CLI entrypoint if installed as a package:
-
-```bash
-acr infer-a --input-path /path/to/audio.wav --output-path /tmp/out --backbone-type crnn --model-type classical
-acr infer-s --input-path /path/to/song.mid --output-path /tmp/out --backbone-type crnn
-acr infer-s --input-path /path/to/song.musicxml --output-path /tmp/out --backbone-type crnn
-```
-
 ## Supported input types
 
 ### Audio inference
