@@ -1,6 +1,6 @@
 # Automatic Harmony Analyzer
 
-This repository is a compact inference-only chord recognition runtime for audio and MIDI-based symbolic input. It runs a pretrained model and write chord predictions as `.lab` files, with optional soft outputs for debugging or downstream processing.
+This repository is a compact inference-only chord recognition runtime for audio and MIDI-based symbolic input. It runs a pretrained model and write chord predictions as `.lab` files, with optional soft outputs for downstream processing.
 
 The model is based on multiple research papers. Currently it is based on "Revisiting Two-Stage Audio Chord Recognition in the Deep Learning Era: Leveraging Multi-Pitch Estimation and Symbolic Pretraining", in ISMIR 2026.
 
@@ -8,9 +8,30 @@ The model is based on multiple research papers. Currently it is based on "Revisi
 
 ### 1) Install dependencies
 
+Python 3.10 is recommended. Install the dependencies with one of these options.
+
+Using `uv`:
+
 ```bash
-conda env create -f environment.yaml
+uv venv --python 3.10
+source .venv/bin/activate
+uv pip install -r requirements.txt
+```
+
+Using `pip`:
+
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Using `conda` for the Python environment and `pip` for the requirements:
+
+```bash
+conda create -n chord-recognition python=3.10 pip
 conda activate chord-recognition
+python -m pip install -r requirements.txt
 ```
 
 ### 2) Put the checkpoints in `ckpt/`
@@ -26,23 +47,18 @@ Use the model family you want:
 - symbolic + `crnn`
 - symbolic + `conformer`
 
+### 3a) Run inference from the command line
 The repository currently supports the following inferred runtime commands:
 
 ```bash
-python -m acr infer-a --input-path /path/to/audio.wav --output-path /tmp/out --backbone-type crnn --model-type classical
-python -m acr infer-s --input-path /path/to/song.mid --output-path /tmp/out --backbone-type crnn
-python -m acr infer-s --input-path /path/to/song.musicxml --output-path /tmp/out --backbone-type crnn
+python -m acr infer-a --input-path /path/to/audio.wav --output-path /tmp/out --backbone-type crnn --model-type classical  # audio + crnn + classical
+python -m acr infer-s --input-path /path/to/song.mid --output-path /tmp/out --backbone-type crnn  # symbolic + crnn
+python -m acr infer-s --input-path /path/to/song.musicxml --output-path /tmp/out --backbone-type conformer  # symbolic + conformer
 ```
 
-## Local web app
+### 3b) Run inference from a local web app
 
-The repository includes a Streamlit interface for running inference locally. After creating and activating the Conda environment, install Streamlit:
-
-```bash
-python -m pip install streamlit
-```
-
-Place the checkpoints for the model choices you plan to use in `ckpt/` as described above, then start the app from the repository root:
+The repository includes a local web app for inference based on streamlit. To use it, start the app from the repository root:
 
 ```bash
 python -m streamlit run app.py --server.headless true --server.port 8501
@@ -50,7 +66,7 @@ python -m streamlit run app.py --server.headless true --server.port 8501
 
 Open [http://localhost:8501](http://localhost:8501) in a browser. Choose audio or symbolic input, select the model options, upload a file, and run inference. The app displays the predicted chords and soft-output probability matrices, and lets you download the `.lab` result. Stop the local server with `Ctrl+C` in the terminal.
 
-## Supported input types
+## CLI usage details
 
 ### Audio inference
 
@@ -68,6 +84,14 @@ This writes:
 - `/tmp/chords.lab`
 - `/tmp/chords.npz` if `--soft-output` is set
 
+Options:
+- `--input-path`: path to an audio file
+- `--output-path`: output stem used for `.lab` and optional `.npz`
+- `--backbone-type`: `crnn` or `conformer`
+- `--model-type`: `classical` or `pop` for audio checkpoints
+- `--soft-output`: save per-frame logits in `.npz`
+- `--clip-seconds`: option to process only the first N seconds of the audio
+
 ### Symbolic inference (MIDI / MusicXML)
 
 ```bash
@@ -82,54 +106,33 @@ python -m acr infer-s \
   --backbone-type crnn
 ```
 
-This accepts MIDI files (`.mid` or `.midi`) and MusicXML files (`.xml` or `.musicxml`). Any other symbolic file type is deliberately rejected.
-
-The command writes:
+This accepts MIDI files (`.mid` or `.midi`) and MusicXML files (`.xml` or `.musicxml`) and writes:
 
 - `/tmp/chords.lab`
 - `/tmp/chords.npz` if `--soft-output` is set
 
-## CLI options
-
-### `infer-a`
-
-- `--input-path`: path to an audio file
-- `--output-path`: output stem used for `.lab` and optional `.npz`
-- `--backbone-type`: `crnn` or `conformer`
-- `--model-type`: `classical` or `pop` for audio checkpoints
-- `--soft-output`: save per-frame logits in `.npz`
-- `--clip-seconds`: option to process only the first N seconds of the audio
-
-### `infer-s`
-
+Options:
 - `--input-path`: path to a symbolic file (`.mid`, `.midi`, `.xml`, or `.musicxml`)
 - `--output-path`: output stem used for `.lab` and optional `.npz`
 - `--backbone-type`: `crnn` or `conformer`
 - `--soft-output`: save per-frame logits in `.npz`
 
-## Output format
+### Output format
 
 The runtime produces a `.lab` file in the usual segment format:
 
 ```text
-0.000000	2.500000	C
-2.500000	5.000000	G
+0.000000	2.500000	C:(3,5)
+2.500000	5.000000	G:(3,5)
 ```
 
 This is:
 
 - start time in seconds
 - end time in seconds
-- chord label
+- chord label in Harte format, with all intervals specified (no shorthand)
 
 If `--soft-output` is enabled, the `.npz` file stores frame-wise predictions from the model for downstream use.
-
-## Notes
-
-- This project is focused on inference only; training code and dataset pipelines are intentionally not included.
-- The symbolic path is intentionally strict: it accepts MIDI and MusicXML only, because the model input format is fixed and deterministic.
-- For audio inference, the HCQT frontend is computed directly from the raw waveform at runtime.
-- Symbolic MusicXML inputs are converted to the same score-grid representation as MIDI before inference, so they share the same runtime contract.
 
 ## Citation
 If you use this code or pretrained weights in your research, please consdier the following citation(s):
