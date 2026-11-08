@@ -1,8 +1,8 @@
 # Automatic Harmony Analyzer
 
-This repository is a compact inference-only chord recognition runtime for audio and MIDI-based symbolic input.
+This repository is a compact inference-only chord recognition runtime for audio and MIDI-based symbolic input. It runs a pretrained model and write chord predictions as `.lab` files, with optional soft outputs for debugging or downstream processing.
 
-It is built for one purpose: run a pretrained model and write chord predictions as `.lab` files, with optional soft outputs for debugging or downstream processing.
+The model is based on multiple research papers. Currently it is based on "Revisiting Two-Stage Audio Chord Recognition in the Deep Learning Era: Leveraging Multi-Pitch Estimation and Symbolic Pretraining", in ISMIR 2026.
 
 ## Quick start
 
@@ -33,6 +33,22 @@ python -m acr infer-a --input-path /path/to/audio.wav --output-path /tmp/out --b
 python -m acr infer-s --input-path /path/to/song.mid --output-path /tmp/out --backbone-type crnn
 python -m acr infer-s --input-path /path/to/song.musicxml --output-path /tmp/out --backbone-type crnn
 ```
+
+## Local web app
+
+The repository includes a Streamlit interface for running inference locally. After creating and activating the Conda environment, install Streamlit:
+
+```bash
+python -m pip install streamlit
+```
+
+Place the checkpoints for the model choices you plan to use in `ckpt/` as described above, then start the app from the repository root:
+
+```bash
+python -m streamlit run app.py --server.headless true --server.port 8501
+```
+
+Open [http://localhost:8501](http://localhost:8501) in a browser. Choose audio or symbolic input, select the model options, upload a file, and run inference. The app displays the predicted chords and soft-output probability matrices, and lets you download the `.lab` result. Stop the local server with `Ctrl+C` in the terminal.
 
 ## Supported input types
 
@@ -114,6 +130,28 @@ If `--soft-output` is enabled, the `.npz` file stores frame-wise predictions fro
 - The symbolic path is intentionally strict: it accepts MIDI and MusicXML only, because the model input format is fixed and deterministic.
 - For audio inference, the HCQT frontend is computed directly from the raw waveform at runtime.
 - Symbolic MusicXML inputs are converted to the same score-grid representation as MIDI before inference, so they share the same runtime contract.
+
+## Citation
+If you use this code or pretrained weights in your research, please consdier the following citation(s):
+
+```
+@inproceedings{ding2026acrclassical,
+  author    = {Yiwei Ding and Christof Wei{\ss}},
+  title     = {Automatic Chord Recognition for Western Classical Music},
+  booktitle = {Book of Abstracts of the International Conference on Computational and Cognitive Musicology (ICCCM)},
+  year      = {2026},
+  address   = {W{\"u}rzburg, Germany},
+  note      = {Abstract only}
+}
+
+@inproceedings{ding2026twostageacr,
+  author    = {Yiwei Ding and Yannik Venohr and Sebastian Strahl and Meinard M\"uller and Christof Wei{\ss}},
+  title     = {Revisiting Two-Stage Audio Chord Recognition in the Deep Learning Era: Leveraging Multi-Pitch Estimation and Symbolic Pretraining},
+  booktitle = {Proceedings the International Society for Music Information Retrieval Conference (ISMIR)},
+  year      = {2026},
+  address   = {Abu Dhabi, UAE},
+}
+```
 
 ## License
 
