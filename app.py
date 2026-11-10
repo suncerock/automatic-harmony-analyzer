@@ -7,6 +7,7 @@ import numpy as np
 import streamlit as st
 
 from acr.inference import _build_model, _resolve_chord_ckpt_path, _resolve_mpe_ckpt_path, run_inference
+from acr.youtube import download_youtube_audio
 
 ROOT = Path(__file__).resolve().parent
 UPLOAD_DIR = ROOT / "tmp_demo"
@@ -101,32 +102,30 @@ def render_soft_output(npz_path: Path, input_kind: str) -> None:
         stride = max(1, int(np.ceil(time_steps / max_cols)))
         sampled = matrix[:, ::stride]
         sampled_cols = sampled.shape[1]
-        label_every = max(1, sampled_cols // 12)
         title = labels.get(key)
-        cell_size = 12
+        cell_size = max(12, int(np.ceil(60 * stride / (5 * fps))) - 2)
         left_width = 52
+        last_time = (sampled_cols - 1) * stride / fps
 
         html = [
             "<div style='margin-top: 8px; margin-bottom: 8px; color: var(--text-color); font-weight: 600; font-size: 16px;'>",
             f"{title} probability" if title else "",
             "</div>",
             "<div style='overflow-x: auto; max-width: 100%; padding: 8px 0;'>",
-            "<div style='min-width: 980px; display: flex; flex-direction: column; gap: 2px;'>",
-            f"<div style='display: grid; grid-template-columns: {left_width}px repeat({sampled_cols}, {cell_size}px); gap: 2px; align-items: end; white-space: nowrap;' >",
+            "<div style='width: max-content; min-width: 980px; display: flex; flex-direction: column; gap: 2px;'>",
+            f"<div style='position: relative; margin-left: {left_width + 2}px; width: {sampled_cols * (cell_size + 2)}px; height: 14px; white-space: nowrap;'>",
         ]
 
-        html.append(f"<div style='font-size: 11px; color: var(--text-color); text-align: center; white-space: nowrap;'></div>")
-        for t_idx in range(sampled_cols):
-            seconds = float((t_idx * stride) / fps)
-            label = f"{seconds:.1f}" if t_idx % label_every == 0 or sampled_cols <= 12 else ""
+        for time in range(0, int(last_time) + 1, 5):
+            position = time * fps / stride * (cell_size + 2)
             html.append(
-                f"<div style='font-size: 11px; color: var(--text-color); text-align: center; min-width: {cell_size}px; height: 14px; line-height: 14px; white-space: nowrap; overflow: visible;'>{label}</div>"
+                f"<div style='position: absolute; left: {position}px; font-size: 11px; color: var(--text-color); line-height: 14px; white-space: nowrap;'>{time:.1f}</div>"
             )
         html.append("</div>")
 
         for pitch_idx in reversed(range(12)):
             html.append(f"<div style='display: grid; grid-template-columns: {left_width}px repeat({sampled_cols}, {cell_size}px); gap: 2px; align-items: center; white-space: nowrap;' >")
-            html.append(f"<div style='font-size: 11px; color: var(--text-color); text-align: right; padding-right: 6px; white-space: nowrap;'>{pitch_names[pitch_idx]}</div>")
+            html.append(f"<div style='position: sticky; left: 0; z-index: 1; background: var(--background-color); font-size: 11px; color: var(--text-color); text-align: right; padding-right: 6px; white-space: nowrap;'>{pitch_names[pitch_idx]}</div>")
             for t_idx in range(sampled_cols):
                 value = float(sampled[pitch_idx, t_idx])
                 color = _probability_to_color(value, palettes[key])
@@ -152,6 +151,7 @@ input_kind = st.radio("Input type", ["audio", "symbolic"], horizontal=True)
 
 if input_kind == "audio":
     file_types = AUDIO_TYPES
+    audio_source = st.radio("Audio source", ["Upload", "YouTube"], horizontal=True)
     backbone_type = st.selectbox("Backbone", ["crnn", "conformer"], index=0)
     model_type = st.selectbox("Audio checkpoint family", ["classical", "pop"], index=0)
 else:
@@ -159,23 +159,33 @@ else:
     backbone_type = st.selectbox("Backbone", ["crnn", "conformer"], index=0)
     model_type = None
 
-uploaded_file = st.file_uploader(
-    "Upload a file",
-    type=file_types,
-    help="For audio: WAV/FLAC/MP3/OGG/AIFF; for symbolic: MIDI or MusicXML.",
-)
+youtube_url = ""
+uploaded_file = None
+if input_kind == "audio" and audio_source == "YouTube":
+    youtube_url = st.text_input("YouTube video URL").strip()
+else:
+    uploaded_file = st.file_uploader(
+        "Upload a file",
+        type=file_types,
+        help="For audio: WAV/FLAC/MP3/OGG/AIFF; for symbolic: MIDI or MusicXML.",
+    )
 
-if uploaded_file is not None:
-    st.write(f"Selected file: {uploaded_file.name}")
+if uploaded_file is not None or youtube_url:
+    if uploaded_file is not None:
+        st.write(f"Selected file: {uploaded_file.name}")
 
     if st.button("Run inference", type="primary"):
         try:
             print("[demo] Running inference...")
-            saved_path = save_uploaded_file(uploaded_file)
             output_stem = UPLOAD_DIR / f"demo_out_{uuid.uuid4().hex}"
 
             with st.status("Running inference...", expanded=True) as status:
-                st.write("Processing the uploaded file and generating chord predictions.")
+                if youtube_url:
+                    st.write("Downloading or loading cached YouTube audio.")
+                    saved_path = download_youtube_audio(youtube_url, UPLOAD_DIR / "youtube")
+                else:
+                    saved_path = save_uploaded_file(uploaded_file)
+                st.write("Generating chord predictions.")
                 model = get_model(backbone_type=backbone_type, model_type=model_type, input_kind=input_kind)
 
                 if input_kind == "audio":
@@ -230,7 +240,7 @@ st.sidebar.header("How to use")
 st.sidebar.markdown(
     """
     1. Choose whether your input is audio or symbolic.
-    2. Upload a file.
+    2. Upload a file or enter a YouTube video URL.
     3. Select the backbone and checkpoint family.
     4. Click Run inference.
     5. Download the generated .lab output.

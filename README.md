@@ -2,7 +2,9 @@
 
 This repository is a compact inference-only chord recognition runtime for audio and MIDI-based symbolic input. It runs a pretrained model and write chord predictions as `.lab` files, with optional soft outputs for downstream processing.
 
-The model is based on multiple research papers. Currently it is based on "Revisiting Two-Stage Audio Chord Recognition in the Deep Learning Era: Leveraging Multi-Pitch Estimation and Symbolic Pretraining", in ISMIR 2026.
+The model is based on multiple research papers. Currently it is based on:
+
+> "Revisiting Two-Stage Audio Chord Recognition in the Deep Learning Era: Leveraging Multi-Pitch Estimation and Symbolic Pretraining", in ISMIR 2026. [[Paper]](https://ismir2026program.ismir.net/poster_266.html#paper)[[Code]](https://github.com/suncerock/two-stage-acr)
 
 ## Quick start
 
@@ -65,6 +67,8 @@ python -m streamlit run app.py --server.headless true --server.port 8501
 ```
 
 Open [http://localhost:8501](http://localhost:8501) in a browser. Choose audio or symbolic input, select the model options, upload a file, and run inference. The app displays the predicted chords and soft-output probability matrices, and lets you download the `.lab` result. Stop the local server with `Ctrl+C` in the terminal.
+
+For YouTube audio, select **YouTube** as the audio source and enter a video URL. This requires an internet connection and FFmpeg installed and available on your `PATH` (for example, `conda install -c conda-forge ffmpeg` or `brew install ffmpeg` on macOS). Some videos also require [Deno](https://deno.com/) on your `PATH` for yt-dlp's YouTube extraction. The app downloads and caches audio in `tmp_demo/youtube/`; subsequent runs for the same video reuse the cached file. Use only videos you have permission to access and download.
 
 ## CLI usage details
 

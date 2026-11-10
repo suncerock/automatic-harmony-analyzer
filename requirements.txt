@@ -16,3 +16,4 @@ pandas
 music21
 transformers==4.49.0
 streamlit>=1.30,<2.0
+yt-dlp
