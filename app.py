@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-import numpy as np
 import streamlit as st
 
 from acr.inference import _build_model, _resolve_chord_ckpt_path, _resolve_mpe_ckpt_path, run_inference
+from acr.player import build_soft_output_figure, encode_audio_for_playback, parse_lab, render_live_player
 from acr.youtube import download_youtube_audio
 
 ROOT = Path(__file__).resolve().parent
@@ -30,6 +30,11 @@ def get_model(backbone_type: str, model_type: str | None, input_kind: str):
     )
 
 
+@st.cache_data(show_spinner="Preparing audio for playback...")
+def get_playback_audio(audio_path: str, mtime: float) -> tuple[str, str]:
+    return encode_audio_for_playback(Path(audio_path))
+
+
 def save_uploaded_file(uploaded_file):
     suffix = Path(uploaded_file.name).suffix.lower().lstrip(".")
     unique_name = f"{uuid.uuid4().hex}.{suffix}"
@@ -39,108 +44,55 @@ def save_uploaded_file(uploaded_file):
     return target_path
 
 
-def _softmax(x: np.ndarray) -> np.ndarray:
-    x = np.asarray(x, dtype=np.float32)
-    x = x - np.max(x, axis=0, keepdims=True)
-    e = np.exp(x)
-    return e / np.sum(e, axis=0, keepdims=True)
+def render_results(result: dict) -> None:
+    lab_path: Path = result["lab_path"]
+    soft_path: Path = result["soft_path"]
+    input_kind: str = result["input_kind"]
+    audio_path: Path | None = result.get("audio_path")
 
-
-def _sigmoid(x: np.ndarray) -> np.ndarray:
-    x = np.asarray(x, dtype=np.float32)
-    return 1.0 / (1.0 + np.exp(-x))
-
-
-def _normalize_probability_matrix(array: np.ndarray, key: str) -> np.ndarray:
-    matrix = np.asarray(array, dtype=np.float32)
-    if key in {"root", "bass"}:
-        if matrix.shape[0] != 12:
-            matrix = matrix.T
-        return _softmax(matrix)
-
-    if key == "pitch":
-        if matrix.shape[0] != 12:
-            matrix = matrix.T
-        return _sigmoid(matrix)
-
-    raise ValueError(f"Unsupported soft-output key: {key!r}")
-
-
-def _probability_to_color(value: float, palette: tuple[int, int, int]) -> str:
-    intensity = float(np.clip(value, 0.0, 1.0))
-    r, g, b = palette
-    alpha = 0.12 + 0.88 * intensity
-    return f"rgba({r}, {g}, {b}, {alpha})"
-
-
-
-def render_soft_output(npz_path: Path, input_kind: str) -> None:
-    soft = dict(np.load(npz_path))
-    available = {"root": soft.get("root"), "bass": soft.get("bass"), "pitch": soft.get("pitch")}
-    required_keys = [key for key, arr in available.items() if arr is not None]
-    fps = 10.0 if input_kind == "audio" else 20.0
-
-    palettes = {
-        "root": (72, 140, 255),
-        "bass": (255, 166, 77),
-        "pitch": (64, 196, 122),
-    }
-    labels = {"root": "Root", "bass": "Bass", "pitch": "Pitch class"}
-    pitch_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-
-    st.subheader("Soft output")
-    for key in required_keys:
-        matrix = _normalize_probability_matrix(available[key], key)
-        if matrix.shape[0] != 12 or matrix.shape[1] == 0:
-            continue
-
-        time_steps = matrix.shape[1]
-        if time_steps == 0:
-            continue
-
-        max_cols = 500
-        stride = max(1, int(np.ceil(time_steps / max_cols)))
-        sampled = matrix[:, ::stride]
-        sampled_cols = sampled.shape[1]
-        title = labels.get(key)
-        cell_size = max(12, int(np.ceil(60 * stride / (5 * fps))) - 2)
-        left_width = 52
-        last_time = (sampled_cols - 1) * stride / fps
-
-        html = [
-            "<div style='margin-top: 8px; margin-bottom: 8px; color: var(--text-color); font-weight: 600; font-size: 16px;'>",
-            f"{title} probability" if title else "",
-            "</div>",
-            "<div style='overflow-x: auto; max-width: 100%; padding: 8px 0;'>",
-            "<div style='width: max-content; min-width: 980px; display: flex; flex-direction: column; gap: 2px;'>",
-            f"<div style='position: relative; margin-left: {left_width + 2}px; width: {sampled_cols * (cell_size + 2)}px; height: 14px; white-space: nowrap;'>",
-        ]
-
-        for time in range(0, int(last_time) + 1, 5):
-            position = time * fps / stride * (cell_size + 2)
-            html.append(
-                f"<div style='position: absolute; left: {position}px; font-size: 11px; color: var(--text-color); line-height: 14px; white-space: nowrap;'>{time:.1f}</div>"
+    st.success("Inference finished.")
+    lab_col, npz_col, _ = st.columns([1, 1, 3])
+    with lab_col:
+        st.download_button(
+            label="Download .lab output",
+            data=lab_path.read_bytes(),
+            file_name=lab_path.name,
+            mime="text/plain",
+            width="stretch",
+        )
+    if soft_path.exists():
+        with npz_col:
+            st.download_button(
+                label="Download soft output (.npz)",
+                data=soft_path.read_bytes(),
+                file_name=soft_path.name,
+                mime="application/octet-stream",
+                width="stretch",
             )
-        html.append("</div>")
 
-        for pitch_idx in reversed(range(12)):
-            html.append(f"<div style='display: grid; grid-template-columns: {left_width}px repeat({sampled_cols}, {cell_size}px); gap: 2px; align-items: center; white-space: nowrap;' >")
-            html.append(f"<div style='position: sticky; left: 0; z-index: 1; background: var(--background-color); font-size: 11px; color: var(--text-color); text-align: right; padding-right: 6px; white-space: nowrap;'>{pitch_names[pitch_idx]}</div>")
-            for t_idx in range(sampled_cols):
-                value = float(sampled[pitch_idx, t_idx])
-                color = _probability_to_color(value, palettes[key])
-                html.append(
-                    f"<span title='pitch={pitch_idx}, t={t_idx * stride} frames ({(t_idx * stride) / fps:.2f}s), p={value:.3f}' "
-                    f"style='display:block; width:{cell_size}px; height:{cell_size}px; border-radius:2px; background:{color}; border: 1px solid rgba(0,0,0,0.09);'></span>"
-                )
-            html.append("</div>")
+    fig = build_soft_output_figure(soft_path, input_kind=input_kind) if soft_path.exists() else None
 
-        html.extend([
-            f"<div style='margin-top: 8px; margin-left: {left_width + 4}px; font-size: 11px; color: var(--text-color); text-align: left; white-space: nowrap;'>Time ({'s' if input_kind == 'audio' else 'measures'})</div>",
-            "</div>",
-            "</div>",
-        ])
-        st.markdown("".join(html), unsafe_allow_html=True)
+    if input_kind == "audio" and audio_path is not None and audio_path.exists() and fig is not None:
+        st.subheader("Live player")
+        st.caption("Press play to follow the predicted chords. Click the chord strip or the heatmaps to seek.")
+        audio_b64, mime = get_playback_audio(str(audio_path), audio_path.stat().st_mtime)
+        render_live_player(audio_b64, mime, parse_lab(lab_path), fig)
+        return  # the player's chord cards and strip replace the raw .lab listing
+
+    if fig is not None:
+        st.subheader("Soft output")
+        st.plotly_chart(fig, width="stretch", config={"scrollZoom": True, "displaylogo": False})
+
+    st.subheader("Predicted chords")
+    lines = lab_path.read_text(encoding="utf-8").strip().splitlines()
+    panel_html = (
+        '<div style="max-height: 420px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; '
+        'padding: 12px; background: var(--secondary-background-color); color: var(--text-color); '
+        'font-family: monospace; white-space: pre-wrap; scrollbar-color: var(--text-color) var(--background-color);">'
+        + "\n".join(lines)
+        + "</div>"
+    )
+    st.markdown(panel_html, unsafe_allow_html=True)
 
 
 st.set_page_config(page_title="Automatic Harmony Analyzer", page_icon="🎵", layout="wide")
@@ -175,6 +127,7 @@ if uploaded_file is not None or youtube_url:
         st.write(f"Selected file: {uploaded_file.name}")
 
     if st.button("Run inference", type="primary"):
+        st.session_state.pop("result", None)
         try:
             print("[demo] Running inference...")
             output_stem = UPLOAD_DIR / f"demo_out_{uuid.uuid4().hex}"
@@ -209,32 +162,23 @@ if uploaded_file is not None or youtube_url:
                 status.update(label="Inference finished.", state="complete")
 
             lab_path = output_stem.with_suffix(".lab")
-            soft_path = output_stem.with_suffix(".npz")
             if not lab_path.exists():
                 raise FileNotFoundError(f"Expected output file was not created: {lab_path}")
 
-            lines = lab_path.read_text(encoding="utf-8").strip().splitlines()
-            st.success("Inference finished.")
-            st.download_button(
-                label="Download .lab output",
-                data=lab_path.read_bytes(),
-                file_name=lab_path.name,
-                mime="text/plain",
-            )
-
-            render_soft_output(soft_path, input_kind=input_kind)
-
-            st.subheader("Predicted chords")
-            panel_html = (
-                '<div style="max-height: 420px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; '
-                'padding: 12px; background: var(--secondary-background-color); color: var(--text-color); '
-                'font-family: monospace; white-space: pre-wrap; scrollbar-color: var(--text-color) var(--background-color);">'
-                + "\n".join(lines)
-                + "</div>"
-            )
-            st.markdown(panel_html, unsafe_allow_html=True)
+            st.session_state["result"] = {
+                "lab_path": lab_path,
+                "soft_path": output_stem.with_suffix(".npz"),
+                "input_kind": input_kind,
+                "audio_path": saved_path if input_kind == "audio" else None,
+            }
         except Exception as exc:  # noqa: BLE001
             st.error(f"Inference failed: {exc}")
+
+if "result" in st.session_state:
+    try:
+        render_results(st.session_state["result"])
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"Could not display results: {exc}")
 
 st.sidebar.header("How to use")
 st.sidebar.markdown(
@@ -243,7 +187,8 @@ st.sidebar.markdown(
     2. Upload a file or enter a YouTube video URL.
     3. Select the backbone and checkpoint family.
     4. Click Run inference.
-    5. Download the generated .lab output.
+    5. For audio, press play in the Live player to follow the chords in real time.
+    6. Download the generated .lab output.
     """
 )
 st.sidebar.markdown("This app reuses the repo's inference runtime directly, so it is easy to demo on a local machine.")

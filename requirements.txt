@@ -15,5 +15,6 @@ scikit-learn
 pandas
 music21
 transformers==4.49.0
-streamlit>=1.30,<2.0
+streamlit>=1.50,<2.0
 yt-dlp
+plotly>=5.0,<7.0
